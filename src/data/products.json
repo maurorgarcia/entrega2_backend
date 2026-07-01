@@ -31,5 +31,16 @@
     "stock": 15,
     "category": "Accesorios",
     "thumbnails": []
+  },
+  {
+    "id": "4",
+    "title": "Auriculares Inalámbricos",
+    "description": "Auriculares Bluetooth con cancelación de ruido",
+    "code": "B001",
+    "price": 15000,
+    "status": true,
+    "stock": 25,
+    "category": "Electrónica",
+    "thumbnails": []
   }
 ]

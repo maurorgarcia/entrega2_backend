@@ -49,6 +49,11 @@ router.post("/", async (req, res) => {
   try {
     const newProduct = await productManager.addProduct(req.body);
 
+    // Si se agrega por HTTP POST, actualizamos los websockets
+    const io = req.app.get('socketio');
+    const updatedProducts = await productManager.getProducts();
+    io.emit('updateProducts', updatedProducts);
+
     res.status(201).json({
       status: "success",
       message: "Producto creado correctamente",
@@ -100,6 +105,11 @@ router.delete("/:pid", async (req, res) => {
         message: "Producto no encontrado"
       });
     }
+
+    // Si se elimina por HTTP DELETE, actualizamos los websockets
+    const io = req.app.get('socketio');
+    const updatedProducts = await productManager.getProducts();
+    io.emit('updateProducts', updatedProducts);
 
     res.json({
       status: "success",
