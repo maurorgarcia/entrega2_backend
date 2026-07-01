@@ -1,6 +1,6 @@
-# Entrega 1 - Backend: API de Productos y Carritos
+# Entregas 1 y 2 - Backend: API de Productos, Carritos y WebSockets
 
-Servidor desarrollado con Node.js y Express para gestionar productos y carritos de compra, con persistencia en archivos JSON.
+Servidor desarrollado con Node.js y Express para gestionar productos y carritos de compra, con persistencia en archivos JSON. Incluye motor de plantillas Handlebars y comunicación en tiempo real con Socket.io.
 
 ## 🚀 Características
 
@@ -8,8 +8,9 @@ Servidor desarrollado con Node.js y Express para gestionar productos y carritos 
 - ✅ CRUD completo de productos
 - ✅ Gestión de carritos de compra
 - ✅ Persistencia en archivos JSON
-- ✅ Validación de datos
-- ✅ IDs autogenerados
+- ✅ Validación de datos y IDs autogenerados
+- ✅ **[NUEVO]** Motor de plantillas Handlebars
+- ✅ **[NUEVO]** Comunicación en tiempo real con Socket.io (WebSockets)
 
 ## 📋 Pre-requisitos
 
@@ -20,7 +21,7 @@ Servidor desarrollado con Node.js y Express para gestionar productos y carritos 
 
 1. Clona el repositorio:
 ```bash
-git clone https://github.com/TU_USUARIO/TU_REPOSITORIO.git
+git clone https://github.com/maurorgarcia/entrega1_backend.git
 cd Entrega1_Backend
 ```
 
@@ -43,7 +44,14 @@ npm start
 
 El servidor se ejecutará en `http://localhost:8080`
 
-## 📡 Endpoints
+## 🖥️ Vistas (Frontend)
+
+| Ruta | Descripción |
+|------|-------------|
+| `GET /` | Vista estática con Handlebars mostrando todos los productos actuales. |
+| `GET /realtimeproducts` | Vista conectada vía WebSockets. Permite agregar y eliminar productos interactuando directamente con el servidor en tiempo real. Todos los clientes conectados verán las actualizaciones instantáneamente. |
+
+## 📡 Endpoints API
 
 ### Productos (`/api/products`)
 
@@ -51,9 +59,9 @@ El servidor se ejecutará en `http://localhost:8080`
 |--------|----------|-------------|
 | GET | `/api/products` | Obtener todos los productos |
 | GET | `/api/products/:pid` | Obtener producto por ID |
-| POST | `/api/products` | Crear nuevo producto |
+| POST | `/api/products` | Crear nuevo producto *(Actualiza sockets)* |
 | PUT | `/api/products/:pid` | Actualizar producto |
-| DELETE | `/api/products/:pid` | Eliminar producto |
+| DELETE | `/api/products/:pid` | Eliminar producto *(Actualiza sockets)* |
 
 ### Ejemplo de producto (POST):
 ```json
@@ -86,9 +94,18 @@ Entrega1_Backend/
 │   ├── managers/
 │   │   ├── ProductManager.js # Lógica de productos
 │   │   └── CartManager.js    # Lógica de carritos
+│   ├── public/
+│   │   └── js/
+│   │       └── realtime.js  # Lógica de cliente (websockets)
 │   ├── routes/
-│   │   ├── products.router.js # Rutas de productos
-│   │   └── carts.router.js    # Rutas de carritos
+│   │   ├── products.router.js # Rutas de productos API
+│   │   ├── carts.router.js    # Rutas de carritos API
+│   │   └── views.router.js    # Rutas de vistas Handlebars
+│   ├── views/
+│   │   ├── layouts/
+│   │   │   └── main.handlebars
+│   │   ├── home.handlebars
+│   │   └── realTimeProducts.handlebars
 │   └── app.js                 # Servidor principal
 ├── package.json
 ├── package-lock.json
