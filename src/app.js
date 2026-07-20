@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const exphbs = require('express-handlebars');
 const path = require('path');
 
+const connectDB = require('./config/db');
 const productsRouter = require('./routes/products.router');
 const cartsRouter = require('./routes/carts.router');
 const viewsRouter = require('./routes/views.router');
@@ -63,6 +64,8 @@ io.on('connection', async (socket) => {
   });
 });
 
-httpServer.listen(port, () => {
-  console.log(`Servidor escuchando en el puerto ${port}`);
+connectDB().then(() => {
+  httpServer.listen(port, () => {
+    console.log(`Servidor escuchando en el puerto ${port}`);
+  });
 });

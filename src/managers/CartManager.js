@@ -1,79 +1,163 @@
-const fs = require("fs").promises;
-const path = require("path");
+const mongoose = require("mongoose");
+const Cart = require("../models/Cart");
 
 class CartManager {
-  constructor() {
-    this.path = path.join(__dirname, "../data/carts.json");
-  }
-
   async getCarts() {
-    try {
-      const data = await fs.readFile(this.path, "utf-8");
-      return JSON.parse(data);
-    } catch (error) {
-      return [];
-    }
+    const carts = await Cart.find().lean();
+    return carts.map(cart => this.formatCart(cart));
   }
 
   async getCartById(id) {
-    const carts = await this.getCarts();
-    return carts.find(cart => cart.id === id);
-  }
-
-  async createCart() {
-    const carts = await this.getCarts();
-
-    const newCart = {
-      id: this.generateId(carts),
-      products: []
-    };
-
-    carts.push(newCart);
-    await this.saveCarts(carts);
-
-    return newCart;
-  }
-
-  async addProductToCart(cartId, productId) {
-    const carts = await this.getCarts();
-
-    const cartIndex = carts.findIndex(cart => cart.id === cartId);
-
-    if (cartIndex === -1) {
+    if (!this.isValidObjectId(id)) {
       return null;
     }
 
-    const productIndex = carts[cartIndex].products.findIndex(
-      item => item.product === productId
-    );
+    const cart = await Cart.findById(id).lean();
+    return cart ? this.formatCart(cart) : null;
+  }
 
-    if (productIndex === -1) {
-      carts[cartIndex].products.push({
+  async getCartByIdPopulated(id) {
+    if (!this.isValidObjectId(id)) {
+      return null;
+    }
+
+    const cart = await Cart.findById(id).populate("products.product").lean();
+    return cart ? this.formatCart(cart) : null;
+  }
+
+  async createCart() {
+    const cart = await Cart.create({ products: [] });
+    return this.formatCart(cart.toObject());
+  }
+
+  async addProductToCart(cartId, productId) {
+    if (!this.isValidObjectId(cartId) || !this.isValidObjectId(productId)) {
+      return null;
+    }
+
+    const cart = await Cart.findById(cartId);
+
+    if (!cart) {
+      return null;
+    }
+
+    const productInCart = cart.products.find(item => item.product.toString() === productId);
+
+    if (productInCart) {
+      productInCart.quantity += 1;
+    } else {
+      cart.products.push({
         product: productId,
         quantity: 1
       });
-    } else {
-      carts[cartIndex].products[productIndex].quantity += 1;
     }
 
-    await this.saveCarts(carts);
-
-    return carts[cartIndex];
+    await cart.save();
+    const updatedCart = await Cart.findById(cartId).populate("products.product").lean();
+    return this.formatCart(updatedCart);
   }
 
-  async saveCarts(carts) {
-    await fs.writeFile(this.path, JSON.stringify(carts, null, 2));
-  }
-
-  generateId(carts) {
-    if (carts.length === 0) {
-      return "1";
+  async deleteProductFromCart(cartId, productId) {
+    if (!this.isValidObjectId(cartId) || !this.isValidObjectId(productId)) {
+      return null;
     }
 
-    const ids = carts.map(cart => Number(cart.id));
-    const maxId = Math.max(...ids);
+    const updatedCart = await Cart.findByIdAndUpdate(
+      cartId,
+      { $pull: { products: { product: productId } } },
+      { new: true }
+    ).populate("products.product").lean();
 
-    return String(maxId + 1);
+    return updatedCart ? this.formatCart(updatedCart) : null;
+  }
+
+  async updateCartProducts(cartId, products) {
+    if (!this.isValidObjectId(cartId) || !Array.isArray(products)) {
+      return null;
+    }
+
+    const normalizedProducts = products.map(item => ({
+      product: item.product || item._id,
+      quantity: Number(item.quantity)
+    }));
+
+    const hasInvalidProduct = normalizedProducts.some(
+      item => !this.isValidObjectId(item.product) || !Number.isInteger(item.quantity) || item.quantity < 1
+    );
+
+    if (hasInvalidProduct) {
+      throw new Error("El arreglo de productos debe incluir product y quantity validos");
+    }
+
+    const updatedCart = await Cart.findByIdAndUpdate(
+      cartId,
+      { products: normalizedProducts },
+      { new: true, runValidators: true }
+    ).populate("products.product").lean();
+
+    return updatedCart ? this.formatCart(updatedCart) : null;
+  }
+
+  async updateProductQuantity(cartId, productId, quantity) {
+    if (!this.isValidObjectId(cartId) || !this.isValidObjectId(productId)) {
+      return null;
+    }
+
+    const parsedQuantity = Number(quantity);
+
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1) {
+      throw new Error("La cantidad debe ser un numero entero mayor a 0");
+    }
+
+    const cart = await Cart.findOneAndUpdate(
+      { _id: cartId, "products.product": productId },
+      { $set: { "products.$.quantity": parsedQuantity } },
+      { new: true, runValidators: true }
+    ).populate("products.product").lean();
+
+    return cart ? this.formatCart(cart) : null;
+  }
+
+  async clearCart(cartId) {
+    if (!this.isValidObjectId(cartId)) {
+      return null;
+    }
+
+    const updatedCart = await Cart.findByIdAndUpdate(
+      cartId,
+      { products: [] },
+      { new: true }
+    ).lean();
+
+    return updatedCart ? this.formatCart(updatedCart) : null;
+  }
+
+  isValidObjectId(id) {
+    return mongoose.Types.ObjectId.isValid(id);
+  }
+
+  formatCart(cart) {
+    return {
+      ...cart,
+      _id: cart._id.toString(),
+      id: cart._id.toString(),
+      products: cart.products.map(item => ({
+        ...item,
+        product: this.formatProductReference(item.product)
+      }))
+    };
+  }
+
+  formatProductReference(product) {
+    if (!product || typeof product !== "object" || !product._id) {
+      return product ? product.toString() : product;
+    }
+
+    return {
+      ...product,
+      _id: product._id.toString(),
+      id: product._id.toString()
+    };
   }
 }
 

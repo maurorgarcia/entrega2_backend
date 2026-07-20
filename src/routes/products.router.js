@@ -6,12 +6,17 @@ const productManager = new ProductManager();
 
 router.get("/", async (req, res) => {
   try {
-    const products = await productManager.getProducts();
-
-    res.json({
-      status: "success",
-      payload: products
+    const { limit, page, sort, query } = req.query;
+    const result = await productManager.getProducts({
+      limit,
+      page,
+      sort,
+      query,
+      paginated: true,
+      baseUrl: `${req.protocol}://${req.get("host")}${req.baseUrl}`
     });
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({
       status: "error",

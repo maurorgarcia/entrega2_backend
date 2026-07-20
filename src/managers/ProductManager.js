@@ -1,137 +1,201 @@
-const fs = require("fs").promises;
-const path = require("path");
+const Product = require("../models/Product");
 
 class ProductManager {
-  constructor() {
-    this.path = path.join(__dirname, "../data/products.json");
-  }
+  async getProducts(options = {}) {
+    const {
+      limit,
+      page,
+      sort,
+      query,
+      paginated = false,
+      baseUrl = "/api/products"
+    } = options;
 
-  async getProducts() {
-    try {
-      const data = await fs.readFile(this.path, "utf-8");
-      return JSON.parse(data);
-    } catch (error) {
-      return [];
+    if (!paginated) {
+      const products = await Product.find().lean();
+      return products.map(product => this.formatProduct(product));
     }
+
+    const parsedLimit = Number(limit) > 0 ? Number(limit) : 10;
+    const parsedPage = Number(page) > 0 ? Number(page) : 1;
+    const filter = this.buildFilter(query);
+    const sortOptions = this.buildSort(sort);
+
+    const totalDocs = await Product.countDocuments(filter);
+    const totalPages = Math.ceil(totalDocs / parsedLimit) || 1;
+    const products = await Product.find(filter)
+      .sort(sortOptions)
+      .skip((parsedPage - 1) * parsedLimit)
+      .limit(parsedLimit)
+      .lean();
+
+    const hasPrevPage = parsedPage > 1;
+    const hasNextPage = parsedPage < totalPages;
+    const prevPage = hasPrevPage ? parsedPage - 1 : null;
+    const nextPage = hasNextPage ? parsedPage + 1 : null;
+
+    return {
+      status: "success",
+      payload: products.map(product => this.formatProduct(product)),
+      totalPages,
+      prevPage,
+      nextPage,
+      page: parsedPage,
+      hasPrevPage,
+      hasNextPage,
+      prevLink: hasPrevPage
+        ? this.buildPageLink(baseUrl, { limit: parsedLimit, page: prevPage, sort, query })
+        : null,
+      nextLink: hasNextPage
+        ? this.buildPageLink(baseUrl, { limit: parsedLimit, page: nextPage, sort, query })
+        : null
+    };
   }
 
   async getProductById(id) {
-    const products = await this.getProducts();
-    return products.find(product => product.id === id);
+    if (!this.isValidObjectId(id)) {
+      return null;
+    }
+
+    const product = await Product.findById(id).lean();
+    return product ? this.formatProduct(product) : null;
   }
 
   async addProduct(productData) {
-    const products = await this.getProducts();
+    this.validateProductData(productData);
 
-    const requiredFields = [
-      "title",
-      "description",
-      "code",
-      "price",
-      "stock",
-      "category"
-    ];
+    try {
+      const newProduct = await Product.create({
+        title: productData.title,
+        description: productData.description,
+        code: productData.code,
+        price: productData.price,
+        status: productData.status !== undefined ? productData.status : true,
+        stock: productData.stock,
+        category: productData.category,
+        thumbnails: productData.thumbnails || []
+      });
 
-    for (const field of requiredFields) {
-      if (productData[field] === undefined || productData[field] === null) {
-        throw new Error(`El campo ${field} es obligatorio`);
+      return this.formatProduct(newProduct.toObject());
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new Error("Ya existe un producto con ese codigo");
       }
+
+      throw error;
     }
-
-    if (typeof productData.price !== "number" || productData.price <= 0) {
-      throw new Error("El precio debe ser un número mayor a 0");
-    }
-
-    if (typeof productData.stock !== "number" || productData.stock < 0) {
-      throw new Error("El stock debe ser un número mayor o igual a 0");
-    }
-
-    const codeExists = products.some(product => product.code === productData.code);
-
-    if (codeExists) {
-      throw new Error("Ya existe un producto con ese código");
-    }
-
-    const newProduct = {
-      id: this.generateId(products),
-      title: productData.title,
-      description: productData.description,
-      code: productData.code,
-      price: productData.price,
-      status: productData.status !== undefined ? productData.status : true,
-      stock: productData.stock,
-      category: productData.category,
-      thumbnails: productData.thumbnails || []
-    };
-
-    products.push(newProduct);
-    await this.saveProducts(products);
-
-    return newProduct;
   }
 
   async updateProduct(id, updatedFields) {
-    const products = await this.getProducts();
-
-    const productIndex = products.findIndex(product => product.id === id);
-
-    if (productIndex === -1) {
+    if (!this.isValidObjectId(id)) {
       return null;
     }
 
     delete updatedFields.id;
+    delete updatedFields._id;
 
     if (updatedFields.price !== undefined) {
-      if (typeof updatedFields.price !== "number" || updatedFields.price <= 0) {
-        throw new Error("El precio debe ser un número mayor a 0");
-      }
+      this.validatePrice(updatedFields.price);
     }
 
     if (updatedFields.stock !== undefined) {
-      if (typeof updatedFields.stock !== "number" || updatedFields.stock < 0) {
-        throw new Error("El stock debe ser un número mayor o igual a 0");
-      }
+      this.validateStock(updatedFields.stock);
     }
 
-    products[productIndex] = {
-      ...products[productIndex],
-      ...updatedFields
-    };
+    const updatedProduct = await Product.findByIdAndUpdate(id, updatedFields, {
+      new: true,
+      runValidators: true
+    }).lean();
 
-    await this.saveProducts(products);
-
-    return products[productIndex];
+    return updatedProduct ? this.formatProduct(updatedProduct) : null;
   }
 
   async deleteProduct(id) {
-    const products = await this.getProducts();
-
-    const productExists = products.some(product => product.id === id);
-
-    if (!productExists) {
+    if (!this.isValidObjectId(id)) {
       return null;
     }
 
-    const filteredProducts = products.filter(product => product.id !== id);
-
-    await this.saveProducts(filteredProducts);
-
-    return true;
+    const deletedProduct = await Product.findByIdAndDelete(id).lean();
+    return deletedProduct ? true : null;
   }
 
-  async saveProducts(products) {
-    await fs.writeFile(this.path, JSON.stringify(products, null, 2));
-  }
-
-  generateId(products) {
-    if (products.length === 0) {
-      return "1";
+  buildFilter(query) {
+    if (!query) {
+      return {};
     }
 
-    const ids = products.map(product => Number(product.id));
-    const maxId = Math.max(...ids);
+    const normalizedQuery = String(query).trim();
 
-    return String(maxId + 1);
+    if (["true", "false"].includes(normalizedQuery.toLowerCase())) {
+      return { status: normalizedQuery.toLowerCase() === "true" };
+    }
+
+    return { category: { $regex: new RegExp(`^${this.escapeRegex(normalizedQuery)}$`, "i") } };
+  }
+
+  buildSort(sort) {
+    if (sort === "asc") {
+      return { price: 1 };
+    }
+
+    if (sort === "desc") {
+      return { price: -1 };
+    }
+
+    return undefined;
+  }
+
+  buildPageLink(baseUrl, params) {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        searchParams.set(key, value);
+      }
+    });
+
+    return `${baseUrl}?${searchParams.toString()}`;
+  }
+
+  validateProductData(productData) {
+    const requiredFields = ["title", "description", "code", "price", "stock", "category"];
+
+    for (const field of requiredFields) {
+      if (productData[field] === undefined || productData[field] === null || productData[field] === "") {
+        throw new Error(`El campo ${field} es obligatorio`);
+      }
+    }
+
+    this.validatePrice(productData.price);
+    this.validateStock(productData.stock);
+  }
+
+  validatePrice(price) {
+    if (typeof price !== "number" || price <= 0) {
+      throw new Error("El precio debe ser un numero mayor a 0");
+    }
+  }
+
+  validateStock(stock) {
+    if (typeof stock !== "number" || stock < 0) {
+      throw new Error("El stock debe ser un numero mayor o igual a 0");
+    }
+  }
+
+  isValidObjectId(id) {
+    return Product.db.base.Types.ObjectId.isValid(id);
+  }
+
+  escapeRegex(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  formatProduct(product) {
+    return {
+      ...product,
+      _id: product._id.toString(),
+      id: product._id.toString()
+    };
   }
 }
 
